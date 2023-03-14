@@ -6,18 +6,17 @@ trigger:
     include:
       - server.json
       - server.parameters.json
-      - azure-pipelines.yml
 
 variables:
   - group: ServerAutomationDemo
   - name: azure_resource_group_name
     value: "ServerProvisionTesting-$(Build.BuildId)"
   - name: subscription_id
-    value: "ccd6d134-0920-442c-a405-1a96d95ea04d"
+    value: ""
   - name: application_id
-    value: "1b495182-ba72-4109-93d1-c7dfb4d0daf3"
+    value: ""
   - name: tenant_id
-    value: "6b406b5f-c04e-4cc0-aef8-8603007c61a7"
+    value: ""
   - name: projectRoot
     value: $(System.DefaultWorkingDirectory)
 
