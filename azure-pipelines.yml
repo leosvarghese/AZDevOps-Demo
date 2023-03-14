@@ -1,0 +1,91 @@
+trigger:
+  branches:
+    include:
+      - master
+  paths:
+    include:
+      - server.json
+      - server.parameters.json
+      - azure-pipelines.yml
+
+variables:
+  - group: ServerAutomationDemo
+  - name: azure_resource_group_name
+    value: "ServerProvisionTesting-$(Build.BuildId)"
+  - name: subscription_id
+    value: "ccd6d134-0920-442c-a405-1a96d95ea04d"
+  - name: application_id
+    value: "1b495182-ba72-4109-93d1-c7dfb4d0daf3"
+  - name: tenant_id
+    value: "6b406b5f-c04e-4cc0-aef8-8603007c61a7"
+  - name: projectRoot
+    value: $(System.DefaultWorkingDirectory)
+
+stages:
+  - stage: Build
+    displayName: Build stage
+    jobs:
+      - job: BuildJob
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            inputs:
+              filePath: "connect-azure.ps1"
+              arguments: '-ServicePrincipalPassword "$(VMAutomationDemo-AppPw)" -SubscriptionId $(subscription_id) -ApplicationId $(application_id) -TenantId $(tenant_id)'
+          - task: PowerShell@2
+            inputs:
+              targetType: "inline"
+              script: New-AzResourceGroup -Name $(azure_resource_group_name) -Location eastus -Force
+          - task: Pester@9
+            inputs:
+              scriptFolder: "@{Path='$(System.DefaultWorkingDirectory)/server.template.tests.ps1'; Parameters=@{ResourceGroupName='$(azure_resource_group_name)'}}"
+              resultsFile: "$(System.DefaultWorkingDirectory)/server.template.tests.XML"
+              usePSCore: true
+              run32Bit: False
+          - task: AzureResourceManagerTemplateDeployment@3
+            inputs:
+              deploymentScope: "Resource Group"
+              azureResourceManagerConnection: "ARM"
+              subscriptionId: "$(subscription_id)"
+              action: "Create Or Update Resource Group"
+              resourceGroupName: $(azure_resource_group_name)
+              location: "East US"
+              templateLocation: "Linked artifact"
+              csmFile: "server.json"
+              csmParametersFile: "server.parameters.json"
+              deploymentMode: "Incremental"
+              deploymentOutputs: "arm_output"
+          - task: Pester@9
+            inputs:
+              scriptFolder: "@{Path='$(System.DefaultWorkingDirectory)/server.infrastructure.tests.ps1'; Parameters=@{ArmDeploymentJsonOutput='$(arm_output)'}}"
+              resultsFile: "$(System.DefaultWorkingDirectory)/server.infrastructure.tests.XML"
+              usePSCore: true
+              run32Bit: False
+
+          - task: CopyFiles@2
+            displayName: "Copy Files to: $(Build.ArtifactStagingDirectory)"
+            inputs:
+              SourceFolder: "$(projectRoot)"
+              TargetFolder: "$(Build.ArtifactStagingDirectory)/_Files"
+
+          - publish: $(Build.ArtifactStagingDirectory)/_Files
+            displayName: "Upload package"
+            artifact: drop
+
+          - task: PowerShell@2
+            inputs:
+              targetType: "inline"
+              script: Get-AzResourceGroup -Name $(azure_resource_group_name) | Remove-AzResourceGroup -Force
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: "NUnit"
+              testResultsFiles: "$(System.DefaultWorkingDirectory)/server.infrastructure.tests.XML"
+              failTaskOnFailedTests: true
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: "NUnit"
+              testResultsFiles: "$(System.DefaultWorkingDirectory)/server.template.tests.XML"
+              failTaskOnFailedTests: true
